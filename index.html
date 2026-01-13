@@ -88,6 +88,68 @@
         .match-card {
             min-height: 88px;
         }
+        
+        /* Estilos para el reproductor modal */
+        .player-modal {
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.2s ease-out;
+        }
+        
+        .iframe-container {
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .iframe-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .player-controls {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+            padding: 20px;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            z-index: 20;
+        }
+        
+        .iframe-container:hover .player-controls {
+            transform: translateY(0);
+        }
+        
+        .ad-blocker-notice {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 30;
+        }
+        
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            z-index: 30;
+        }
     </style>
 </head>
 <body class="bg-background-dark font-display text-slate-200 antialiased overflow-hidden h-screen w-full flex">
@@ -194,12 +256,261 @@
         </div>
     </main>
 
+    <!-- Reproductor Modal -->
+    <div id="playerModal" class="fixed inset-0 bg-black/90 z-50 hidden items-center justify-center p-4 player-modal">
+        <div class="relative w-full max-w-6xl h-full max-h-[90vh] bg-background-dark rounded-xl overflow-hidden flex flex-col">
+            <div class="flex items-center justify-between p-4 border-b border-[#283039]">
+                <h3 class="text-white text-lg font-medium" id="playerTitle">Reproduciendo partido</h3>
+                <div class="flex items-center gap-2">
+                    <button id="fullscreenBtn" class="size-8 flex items-center justify-center rounded-full bg-[#283039] text-white hover:bg-primary transition-colors">
+                        <span class="material-symbols-outlined text-[20px]">fullscreen</span>
+                    </button>
+                    <button id="closePlayer" class="size-8 flex items-center justify-center rounded-full bg-[#283039] text-white hover:bg-red-500 transition-colors">
+                        <span class="material-symbols-outlined text-[20px]">close</span>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 relative iframe-container" id="playerContainer">
+                <div class="ad-blocker-notice">
+                    <span class="material-symbols-outlined text-sm mr-1">shield</span>
+                    Protección activa
+                </div>
+                <button id="enterFullscreenBtn" class="fullscreen-btn">
+                    <span class="material-symbols-outlined text-sm mr-1">fullscreen</span>
+                    Pantalla completa
+                </button>
+                <div class="iframe-overlay" id="iframeOverlay"></div>
+                <div class="player-controls">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <button id="playerRefresh" class="size-10 flex items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary hover:text-white transition-colors">
+                                <span class="material-symbols-outlined">refresh</span>
+                            </button>
+                            <button id="playerMute" class="size-10 flex items-center justify-center rounded-full bg-primary/20 text-primary hover:bg-primary hover:text-white transition-colors">
+                                <span class="material-symbols-outlined">volume_up</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button id="openInNewTab" class="px-4 py-2 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition-colors text-sm font-medium">
+                                <span class="material-symbols-outlined text-sm mr-1">open_in_new</span>
+                                Abrir en nueva pestaña
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <iframe 
+                    id="streamIframe" 
+                    class="w-full h-full border-0"
+                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-presentation"
+                    allowfullscreen
+                    referrerpolicy="no-referrer"
+                ></iframe>
+            </div>
+            <div class="p-4 border-t border-[#283039]">
+                <div class="flex items-center justify-between text-sm">
+                    <div class="flex items-center gap-4">
+                        <span class="text-[#9dabb9]">Consejo: Usa los controles overlay para evitar anuncios</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-green-500 bg-green-500/10 px-2 py-1 rounded-full">
+                            <span class="material-symbols-outlined text-xs mr-1">security</span>
+                            Protegido
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- JavaScript -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             let allMatches = [];
             let currentLeague = 'all';
             let currentSearch = '';
+            let currentStreamUrl = '';
+            let isIframeLoaded = false;
+            
+            // Elementos del reproductor
+            const playerModal = document.getElementById('playerModal');
+            const streamIframe = document.getElementById('streamIframe');
+            const closePlayer = document.getElementById('closePlayer');
+            const playerTitle = document.getElementById('playerTitle');
+            const playerContainer = document.getElementById('playerContainer');
+            const iframeOverlay = document.getElementById('iframeOverlay');
+            const openInNewTab = document.getElementById('openInNewTab');
+            const playerRefresh = document.getElementById('playerRefresh');
+            const playerMute = document.getElementById('playerMute');
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            const enterFullscreenBtn = document.getElementById('enterFullscreenBtn');
+            
+            // Configuración del reproductor
+            function setupPlayer() {
+                // Cerrar reproductor
+                closePlayer.addEventListener('click', closePlayerModal);
+                
+                // Cerrar con ESC
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && !playerModal.classList.contains('hidden')) {
+                        closePlayerModal();
+                    }
+                });
+                
+                // Abrir en nueva pestaña
+                openInNewTab.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (currentStreamUrl) {
+                        window.open(currentStreamUrl, '_blank');
+                    }
+                });
+                
+                // Refrescar iframe
+                playerRefresh.addEventListener('click', () => {
+                    if (currentStreamUrl && isIframeLoaded) {
+                        streamIframe.src = currentStreamUrl;
+                    }
+                });
+                
+                // Silenciar iframe
+                playerMute.addEventListener('click', () => {
+                    if (isIframeLoaded) {
+                        try {
+                            const iframeDoc = streamIframe.contentDocument || streamIframe.contentWindow.document;
+                            const videos = iframeDoc.querySelectorAll('video');
+                            videos.forEach(video => {
+                                video.muted = !video.muted;
+                            });
+                            
+                            // Cambiar ícono
+                            const icon = playerMute.querySelector('span');
+                            icon.textContent = icon.textContent === 'volume_up' ? 'volume_off' : 'volume_up';
+                        } catch (e) {
+                            console.log('No se pudo controlar el audio del iframe');
+                        }
+                    }
+                });
+                
+                // Pantalla completa
+                fullscreenBtn.addEventListener('click', toggleFullscreen);
+                enterFullscreenBtn.addEventListener('click', toggleFullscreen);
+                
+                // Evento de carga del iframe
+                streamIframe.addEventListener('load', () => {
+                    isIframeLoaded = true;
+                    setupIframeProtection();
+                });
+                
+                // Interceptar clics en el overlay para prevenir acciones del iframe
+                setupOverlayProtection();
+            }
+            
+            function setupIframeProtection() {
+                if (!isIframeLoaded) return;
+                
+                try {
+                    // Intentar bloquear scripts de anuncios
+                    const iframeWindow = streamIframe.contentWindow;
+                    
+                    // Sobrescribir algunas funciones comunes que abren popups
+                    iframeWindow.originalOpen = iframeWindow.open;
+                    iframeWindow.open = function(url, target, features) {
+                        // Bloquear popups no deseados
+                        if (target === '_blank' || features) {
+                            console.log('Popup bloqueado:', url);
+                            return null;
+                        }
+                        return iframeWindow.originalOpen(url, target, features);
+                    };
+                    
+                    // Bloquear alertas
+                    iframeWindow.alert = function() { console.log('Alert bloqueado'); };
+                    iframeWindow.confirm = function() { 
+                        console.log('Confirm bloqueado');
+                        return true;
+                    };
+                    
+                } catch (e) {
+                    // Cross-origin restriction, no podemos modificar el iframe
+                    console.log('Iframe protegido por CORS');
+                }
+            }
+            
+            function setupOverlayProtection() {
+                // Crear zonas seguras para clics
+                const safeZones = [
+                    { x: 'center', y: 'center', width: '60%', height: '60%' }, // Zona central segura
+                ];
+                
+                iframeOverlay.addEventListener('click', (e) => {
+                    const rect = iframeOverlay.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    const width = rect.width;
+                    const height = rect.height;
+                    
+                    let isSafeClick = false;
+                    
+                    // Verificar si el clic está en una zona segura
+                    safeZones.forEach(zone => {
+                        let zoneX, zoneY, zoneWidth, zoneHeight;
+                        
+                        if (zone.x === 'center') zoneX = width * 0.2;
+                        else zoneX = zone.x;
+                        
+                        if (zone.y === 'center') zoneY = height * 0.2;
+                        else zoneY = zone.y;
+                        
+                        zoneWidth = zone.width.includes('%') ? 
+                            width * (parseInt(zone.width) / 100) : zone.width;
+                        zoneHeight = zone.height.includes('%') ? 
+                            height * (parseInt(zone.height) / 100) : zone.height;
+                        
+                        if (x >= zoneX && x <= zoneX + zoneWidth &&
+                            y >= zoneY && y <= zoneY + zoneHeight) {
+                            isSafeClick = true;
+                        }
+                    });
+                    
+                    if (!isSafeClick) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        console.log('Clic bloqueado en zona peligrosa');
+                    }
+                });
+            }
+            
+            function openPlayerModal(title, streamUrl) {
+                currentStreamUrl = streamUrl;
+                playerTitle.textContent = title;
+                playerModal.classList.remove('hidden');
+                document.body.style.overflow = 'hidden';
+                
+                // Limpiar iframe anterior
+                streamIframe.src = '';
+                
+                // Cargar con timeout para prevenir cargas inmediatas
+                setTimeout(() => {
+                    streamIframe.src = streamUrl;
+                    isIframeLoaded = false;
+                }, 100);
+            }
+            
+            function closePlayerModal() {
+                playerModal.classList.add('hidden');
+                document.body.style.overflow = '';
+                streamIframe.src = '';
+                isIframeLoaded = false;
+            }
+            
+            function toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    playerContainer.requestFullscreen().catch(err => {
+                        console.log(`Error al intentar pantalla completa: ${err.message}`);
+                    });
+                } else {
+                    document.exitFullscreen();
+                }
+            }
             
             // Inicializar botones de liga
             document.querySelectorAll('.league-btn').forEach(btn => {
@@ -219,6 +530,9 @@
                 currentSearch = e.target.value.toLowerCase().trim();
                 filterAndRenderMatches();
             });
+            
+            // Inicializar reproductor
+            setupPlayer();
             
             // Cargar partidos
             fetchMatches();
@@ -455,13 +769,16 @@
                             <p class="text-sm text-[#9dabb9] mb-3 font-medium">Selecciona una fuente de transmisión:</p>
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                 ${matchGroup.streams.map((stream, index) => `
-                                    <button class="stream-btn flex items-center gap-3 p-3 rounded-lg bg-[#283039] hover:bg-primary border border-transparent hover:border-primary/50 group/btn transition-all duration-200" data-link="${stream.link}">
+                                    <button class="stream-btn flex items-center gap-3 p-3 rounded-lg bg-[#283039] hover:bg-primary border border-transparent hover:border-primary/50 group/btn transition-all duration-200" data-link="${stream.link}" data-title="${matchGroup.title}">
                                         <div class="size-8 rounded-full bg-background-dark/50 flex items-center justify-center text-white group-hover/btn:text-primary group-hover/btn:bg-white transition-colors">
                                             <span class="material-symbols-outlined text-[20px]">play_arrow</span>
                                         </div>
                                         <div class="flex flex-col items-start">
                                             <span class="text-sm font-medium text-white">Stream ${index + 1}</span>
                                             <span class="text-[10px] text-gray-400 group-hover/btn:text-white/80 uppercase">${stream.language} • ${stream.quality}</span>
+                                        </div>
+                                        <div class="ml-auto flex items-center">
+                                            <span class="material-symbols-outlined text-sm text-gray-500 group-hover/btn:text-white">play_circle</span>
                                         </div>
                                     </button>
                                 `).join('')}
@@ -527,13 +844,14 @@
                     });
                 });
                 
-                // Botones de stream
+                // Botones de stream - ahora abren el reproductor personalizado
                 document.querySelectorAll('.stream-btn').forEach(btn => {
                     btn.addEventListener('click', function(e) {
                         e.stopPropagation();
                         const link = this.getAttribute('data-link');
+                        const title = this.getAttribute('data-title');
                         if (link) {
-                            window.open(link, '_blank');
+                            openPlayerModal(title, link);
                         }
                     });
                 });
